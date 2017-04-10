@@ -47,4 +47,11 @@ graal: mx graal-core java_home
 	export JAVA_HOME=$(JAVA_HOME); cd graal-core; ../mx/mx build
 
 deploy: java_home graal
-	cd graal-core; cp mxbuild/dists/graal.jar $(JAVA_HOME)/jre/lib/jvmci/
+	ln -s $(JAVA_HOME) jdk
+	mkdir -p lib/graalvm
+	cp graal-core/mxbuild/dists/graal.jar lib/graalvm/
+	mkdir -p lib/truffle
+	cp truffle/mxbuild/dists/*.jar lib/truffle/
+
+eclipse: ../eclipse/java-neon/eclipse/eclipse java_home
+	../eclipse/java-neon/eclipse/eclipse -vm $(JAVA_HOME)/bin --launcher.appendVmargs -XX:+UnlockExperimentalVMOptions -XX:+UseJVMCICompiler

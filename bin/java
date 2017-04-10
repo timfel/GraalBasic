@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+
+function abspath() {
+    if [ -d "$1" ]; then
+        # dir
+        (cd "$1"; pwd)
+    elif [ -f "$1" ]; then
+        # file
+        if [[ $1 == */* ]]; then
+            echo "$(cd "${1%/*}"; pwd)/${1##*/}"
+        else
+            echo "$(pwd)/$1"
+        fi
+    fi
+}
+
+LOCAL_HOME="$(abspath $(dirname $0)/../)"
+
+if [ -f "$LOCAL_HOME/jre/bin/java" ]; then
+    JAVA_HOME="$LOCAL_HOME/jre/"
+fi
+
+if [ -f "$LOCAL_HOME/jdk/bin/java" ]; then
+    JAVA_HOME="$LOCAL_HOME/jdk/"
+fi
+
+
+[ -z "$JAVA_HOME" ] && echo "Error: Environment variable JAVA_HOME is not set. You need a JVMCI enabled JDK 8 to use GraalVM. You can download a JVMCI enabled JDK 8 from http://www.oracle.com/technetwork/oracle-labs/program-languages/overview/index.html." && exit 1;
+
+if [ ! -f "$JAVA_HOME/jre/lib/jvmci/jvmci-api.jar" ]; then
+    if [ ! -f "$JAVA_HOME/lib/jvmci/jvmci-api.jar" ]; then
+        if [ -f "$JAVA_HOME/lib/modules" ]; then
+            echo "Error: GraalVM does not support JDK9 configured in the JAVA_HOME environment variable. You need a JVMCI enabled JDK 8 to use GraalVM. You can download a JVMCI enabled JDK 8 from http://www.oracle.com/technetwork/oracle-labs/program-languages/overview/index.html." && exit 1;
+        else
+            echo "Error: The configured Java runtime at JAVA_HOME is invalid or not JVMCI enabled. You need a JVMCI enabled JDK 8 to use GraalVM. You can download a JVMCI enabled JDK 8 from http://www.oracle.com/technetwork/oracle-labs/program-languages/overview/index.html." && exit 1;
+        fi
+    fi
+fi
+
+CLASSPATH=""
+PROGRAM_ARGS=()
+JAVA_ARGS=()
+PRINT_COMMAND=false
+IS_POLYGLOT_PRESENT=false
+IS_CLASSPATH=false
+IS_SERVER_PRESENT=false
+IS_ORIGINAL_PRESENT=false
+XMX=""
+XMS=""
+XSS=""
+for opt in "${@:1}"
+do
+    if [ $IS_CLASSPATH = true ]; then
+        CLASSPATH="$opt:$CLASSPATH"
+        IS_CLASSPATH=false
+    else
+        case $opt in
+            -cmd)
+                PRINT_COMMAND=true ;;
+            -polyglot)
+                IS_POLYGLOT_PRESENT=true ;;
+            -server)
+                IS_SERVER_PRESENT=true ;;
+            -Xmx*)
+                XMX="$opt" ;;
+            -Xms*)
+                XMS="$opt" ;;
+            -Xss*)
+                XSS="$opt" ;;
+            -original)
+                IS_ORIGINAL_PRESENT=true ;;
+            -cp)
+                IS_CLASSPATH=true ;;
+            -classpath)
+                IS_CLASSPATH=true ;;
+            -G:*)
+                opt=${opt:3}
+                case $opt in
+                    +*)
+                        opt="${opt:1}=true" ;;
+                    -*)
+                        opt="${opt:1}=false" ;;
+                esac
+                JAVA_ARGS+=("-Dgraal.$opt") ;;
+            *)
+                PROGRAM_ARGS+=("$opt") ;;
+        esac
+    fi
+done
+
+
+if [ $IS_POLYGLOT_PRESENT = true ]; then
+    LIBRARYPATH=""
+    if [ "$CLASSPATH" != "" ]; then
+        CLASSPATH=$CLASSPATH:$LOCAL_HOME/lib/graalvm/graalvm.jar
+    else
+        CLASSPATH=$LOCAL_HOME/lib/graalvm/graalvm.jar
+    fi
+
+     # will be picked up by the vm for system.library.path
+    export LD_LIBRARY_PATH="$LIBRARYPATH"
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        export DYLD_LIBRARY_PATH="$LIBRARYPATH"
+        JAVA_ARGS+=("-Djava.library.path=$LIBRARYPATH")
+    fi
+
+    if [ $IS_SERVER_PRESENT = false ] && [ $IS_ORIGINAL_PRESENT = false ]; then
+        JAVA_ARGS+=("-server")
+    fi
+
+    if [ "$XMX" = ""  ]; then
+        XMX="-Xmx2G"
+    fi
+    if [ "$XMS" = ""  ]; then
+        XMS="-Xms1G"
+    fi
+    if [ "$XSS" = ""  ]; then
+        XSS="-Xss12m"
+    fi
+
+else
+    if [ $IS_SERVER_PRESENT = false ] && [ $IS_ORIGINAL_PRESENT = false ]; then
+        JAVA_ARGS+=("-XX:+UseJVMCICompiler")
+    fi
+fi
+
+if [ $IS_ORIGINAL_PRESENT = false ]; then
+    JAVA_ARGS+=("-XX:+UnlockExperimentalVMOptions")
+    JAVA_ARGS+=("-XX:+EnableJVMCI")
+else
+    JAVA_ARGS+=("-original")
+fi
+
+if [ "$XMX" != "" ]; then
+    JAVA_ARGS+=("$XMX")
+fi
+if [ "$XMS" != "" ]; then
+    JAVA_ARGS+=("$XMS")
+fi
+if [ "$XSS" != "" ]; then
+    JAVA_ARGS+=("$XSS")
+fi
+
+if [ "$CLASSPATH" != "" ]; then
+    JAVA_ARGS+=("-cp" "$CLASSPATH")
+fi
+
+BOOTCLASSPATH=""
+BOOTCP="lib/truffle/truffle-api.jar:lib/truffle/truffle-om.jar:lib/truffle/truffle-debug.jar"
+for cp in ${BOOTCP//:/ }
+do
+    BOOTCLASSPATH="$BOOTCLASSPATH$LOCAL_HOME/$cp:"
+done
+
+JVMCICLASSPATH=""
+JVMCICP="lib/graal/graal.jar:lib/graal/enterprise-graal.jar:lib/graal/graalvm-locator.jar"
+for cp in ${JVMCICP//:/ }
+do
+    JVMCICLASSPATH="$JVMCICLASSPATH$LOCAL_HOME/$cp:"
+done
+
+JAVACMD="$JAVA_HOME/bin/java"
+
+[ $PRINT_COMMAND = true ] && ( echo "$JAVACMD" "-Xbootclasspath/a:$BOOTCLASSPATH" "-Djvmci.class.path.append=$JVMCICLASSPATH" "-Dgraalvm.home=$LOCAL_HOME" "-Dgraal.CompilerConfiguration=enterprise" "${JAVA_ARGS[@]}" "${PROGRAM_ARGS[@]}"; exit 1 )
+
+exec "$JAVACMD" "-Xbootclasspath/a:$BOOTCLASSPATH" "-Djvmci.class.path.append=$JVMCICLASSPATH" "-Dgraalvm.home=$LOCAL_HOME" "${JAVA_ARGS[@]}" "${PROGRAM_ARGS[@]}"
