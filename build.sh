@@ -10,6 +10,17 @@ echo ""
 git submodule update --init --recursive
 
 echo ""
+echo %% Update JDK 8 with JVMCI sources
+echo ""
+if [ -d graal-jvmci-8 ]; then
+    cd graal-jvmci-8
+    hg pull -u
+    cd ..
+else
+    hg clone http://hg.openjdk.java.net/graal/graal-jvmci-8
+fi
+
+echo ""
 echo %% Clean Truffle
 echo ""
 cd truffle
