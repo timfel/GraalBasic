@@ -147,7 +147,7 @@ if [ "$CLASSPATH" != "" ]; then
 fi
 
 BOOTCLASSPATH=""
-BOOTCP="lib/truffle/truffle-api.jar:lib/truffle/truffle-om.jar:lib/truffle/truffle-debug.jar"
+BOOTCP="lib/truffle/truffle-api.jar:lib/truffle/truffle-om.jar:lib/truffle/truffle-debug.jar:lib/truffle/truffle-dsl-processor.jar:lib/truffle/truffle-tck.jar"
 for cp in ${BOOTCP//:/ }
 do
     BOOTCLASSPATH="$BOOTCLASSPATH$LOCAL_HOME/$cp:"
